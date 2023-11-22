@@ -24,8 +24,8 @@ def train_epoch(loader, model, criterion, optimizer):
     model.train()
 
     for i, (input, target) in enumerate(loader):
-        input = input.cuda()#(async=True)
-        target = target.cuda()#(async=True)
+        #input = input.cuda()#(async=True)
+        #target = target.cuda()#(async=True)
         input_var = torch.autograd.Variable(input)
         target_var = torch.autograd.Variable(target)
 

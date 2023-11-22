@@ -1,5 +1,5 @@
 # Adaptive Stochastic Weight Averaging (ASWA)
-
+This repository based on https://github.com/timgaripov/swa/tree/master
 
 # Stochastic Weight Averaging (SWA)
 This repository contains a PyTorch implementation of the Stochastic Weight Averaging (SWA) training method for DNNs from the paper

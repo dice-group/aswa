@@ -8,17 +8,16 @@ import torchvision
 import models
 import utils
 import tabulate
-
-
+from torch.utils.data import random_split
 parser = argparse.ArgumentParser(description='SGD/SWA training')
-parser.add_argument('--dir', type=str, default=None, required=True, help='training directory (default: None)')
+parser.add_argument('--dir', type=str, default='.', required=False, help='training directory (default: None)')
 
 parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)')
-parser.add_argument('--data_path', type=str, default=None, required=True, metavar='PATH',
+parser.add_argument('--data_path', type=str, default='.', required=False, metavar='PATH',
                     help='path to datasets location (default: None)')
-parser.add_argument('--batch_size', type=int, default=128, metavar='N', help='input batch size (default: 128)')
+parser.add_argument('--batch_size', type=int, default=1024, metavar='N', help='input batch size (default: 128)')
 parser.add_argument('--num_workers', type=int, default=4, metavar='N', help='number of workers (default: 4)')
-parser.add_argument('--model', type=str, default=None, required=True, metavar='MODEL',
+parser.add_argument('--model', type=str, default='VGG16', required=False, metavar='MODEL',
                     help='model name (default: None)')
 
 parser.add_argument('--resume', type=str, default=None, metavar='CKPT',
@@ -36,6 +35,8 @@ parser.add_argument('--swa_start', type=float, default=161, metavar='N', help='S
 parser.add_argument('--swa_lr', type=float, default=0.05, metavar='LR', help='SWA LR (default: 0.05)')
 parser.add_argument('--swa_c_epochs', type=int, default=1, metavar='N',
                     help='SWA model collection frequency/cycle length in epochs (default: 1)')
+
+parser.add_argument('--aswa', action='store_true', help='aswa usage flag (default: off)')
 
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='random seed (default: 1)')
 
@@ -55,15 +56,33 @@ print('Using model %s' % args.model)
 model_cfg = getattr(models, args.model)
 
 print('Loading dataset %s from %s' % (args.dataset, args.data_path))
+"""
 ds = getattr(torchvision.datasets, args.dataset)
 path = os.path.join(args.data_path, args.dataset.lower())
 train_set = ds(path, train=True, download=True, transform=model_cfg.transform_train)
 test_set = ds(path, train=False, download=True, transform=model_cfg.transform_test)
+"""
+train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=model_cfg.transform_train)
+test_set = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=model_cfg.transform_train)
+
+train_size, val_size = 40_000, 10_000
+assert len(train_set) == 50_000
+num_classes = max(train_set.targets) + 1
+
+train_set, val_set = random_split(train_set, [train_size, val_size])
+
 loaders = {
     'train': torch.utils.data.DataLoader(
         train_set,
         batch_size=args.batch_size,
         shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=True
+    ),
+    'val': torch.utils.data.DataLoader(
+        val_set,
+        batch_size=args.batch_size,
+        shuffle=False,
         num_workers=args.num_workers,
         pin_memory=True
     ),
@@ -74,19 +93,26 @@ loaders = {
         num_workers=args.num_workers,
         pin_memory=True
     )
+
 }
-num_classes = max(train_set.targets) + 1
+
 
 print('Preparing model')
 model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
-model.cuda()
-
+# model.cuda()
 
 if args.swa:
     print('SWA training')
     swa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
-    swa_model.cuda()
+    # swa_model.cuda()
     swa_n = 0
+elif args.aswa:
+    print('ASWA training')
+    raise NotImplementedError()
+    #swa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
+    #swa_model.cuda()
+    #swa_n = 0
+
 else:
     print('SGD training')
 
@@ -142,10 +168,10 @@ utils.save_checkpoint(
 
 for epoch in range(start_epoch, args.epochs):
     time_ep = time.time()
-
     lr = schedule(epoch)
     utils.adjust_learning_rate(optimizer, lr)
     train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer)
+
     if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
         test_res = utils.eval(loaders['test'], model, criterion)
     else:
