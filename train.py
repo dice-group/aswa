@@ -101,6 +101,9 @@ print('Preparing model')
 model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
 # model.cuda()
 
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+model.to(device)
+
 if args.swa:
     print('SWA training')
     swa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
@@ -170,7 +173,7 @@ for epoch in range(start_epoch, args.epochs):
     time_ep = time.time()
     lr = schedule(epoch)
     utils.adjust_learning_rate(optimizer, lr)
-    train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer)
+    train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer,device)
 
     if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
         test_res = utils.eval(loaders['test'], model, criterion)

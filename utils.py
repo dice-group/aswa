@@ -17,15 +17,15 @@ def save_checkpoint(dir, epoch, **kwargs):
     torch.save(state, filepath)
 
 
-def train_epoch(loader, model, criterion, optimizer):
+def train_epoch(loader, model, criterion, optimizer, device):
     loss_sum = 0.0
     correct = 0.0
 
     model.train()
 
     for i, (input, target) in enumerate(loader):
-        #input = input.cuda()#(async=True)
-        #target = target.cuda()#(async=True)
+        input = input.to(device)#(async=True)
+        target = target.to(device)#(async=True)
         input_var = torch.autograd.Variable(input)
         target_var = torch.autograd.Variable(target)
 
