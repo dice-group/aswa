@@ -45,7 +45,7 @@ def train_epoch(loader, model, criterion, optimizer, device):
         'accuracy': correct / len(loader.dataset) * 100.0,
     }
 
-
+@torch.no_grad()
 def eval(loader, model, criterion):
     loss_sum = 0.0
     correct = 0.0
@@ -69,7 +69,6 @@ def eval(loader, model, criterion):
         'loss': loss_sum / len(loader.dataset),
         'accuracy': correct / len(loader.dataset) * 100.0,
     }
-
 
 def moving_average(net1, net2, alpha=1):
     for param1, param2 in zip(net1.parameters(), net2.parameters()):
