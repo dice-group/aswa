@@ -199,21 +199,29 @@ for epoch in range(start_epoch, args.epochs):
         
         utils.moving_average(swa_model, model, 1.0 / (swa_n + 1))
         swa_n += 1
-        
-        utils.moving_average(aswa_model, model, 1.0 / (aswa_n + 1))    
-        aswa_n += 1
-
+ 
+        if aswa_res["accuracy"] is not None:
+            if val_res["accuracy"] > aswa_res["accuracy"]:
+                # Decrease the denominator or increase the nominator
+                utils.moving_average(aswa_model, model, 2.0 / (aswa_n + 1))        
+                aswa_n += 1
+            else:
+                utils.moving_average(aswa_model, model, 1.0 / (aswa_n + 1))        
+                aswa_n += 1
+        else:
+            utils.moving_average(aswa_model, model, 1.0 / (aswa_n + 1))    
+            aswa_n += 1
 
         if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
 
             utils.bn_update(loaders['train'], swa_model)
             swa_res = utils.eval(loaders['val'], swa_model, criterion)
-        
+            
             utils.bn_update(loaders['train'], aswa_model)
             aswa_res = utils.eval(loaders['val'], aswa_model, criterion)
-
         else:
             swa_res = {'loss': None, 'accuracy': None}
+        
             aswa_res = {'loss': None, 'accuracy': None}
 
 
