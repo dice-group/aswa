@@ -26,7 +26,7 @@ parser.add_argument('--resume', type=str, default=None, metavar='CKPT',
 
 parser.add_argument('--epochs', type=int, default=200, metavar='N', help='number of epochs to train (default: 200)')
 parser.add_argument('--save_freq', type=int, default=25, metavar='N', help='save frequency (default: 25)')
-parser.add_argument('--eval_freq', type=int, default=5, metavar='N', help='evaluation frequency (default: 5)')
+parser.add_argument('--eval_freq', type=int, default=1, metavar='N', help='evaluation frequency (default: 5)')
 parser.add_argument('--lr_init', type=float, default=0.1, metavar='LR', help='initial learning rate (default: 0.01)')
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M', help='SGD momentum (default: 0.9)')
 parser.add_argument('--wd', type=float, default=1e-4, help='weight decay (default: 1e-4)')
@@ -67,9 +67,9 @@ test_set = ds(path, train=False, download=True, transform=model_cfg.transform_te
 if args.dataset=="CIFAR10":
     train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=model_cfg.transform_train)
     test_set = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=model_cfg.transform_train)
-
-    train_size, val_size = 45_000, 5_000
-    assert len(train_set) == 50_000
+    
+    train_size = int(len(train_set)*0.7)
+    val_size=len(train_set)-train_size
 else:
     print("Not implemented")
     exit(1)
@@ -104,7 +104,6 @@ loaders = {
 
 print('Preparing model')
 model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
-# model.cuda()
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 model.to(device)
@@ -137,8 +136,7 @@ criterion = F.cross_entropy
 if args.optim=="SGD":
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr_init,momentum=args.momentum,weight_decay=args.wd)
 elif args.optim=="Adam":
-    print("Not")
-    exit(1)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr_init)
 else:
     print("NNN")
     exit(1)
@@ -182,8 +180,12 @@ utils.save_checkpoint(
 for epoch in range(start_epoch, args.epochs):
     time_ep = time.time()
     # (Adjust LR)
-    lr = schedule(epoch)
-    utils.adjust_learning_rate(optimizer, lr)
+    if args.optim=="SGD":
+        lr = schedule(epoch)
+        utils.adjust_learning_rate(optimizer, lr)
+    else:
+        lr = args.lr_init
+
     # A single iteration over training dataset
     train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer, device)
 
@@ -205,12 +207,13 @@ for epoch in range(start_epoch, args.epochs):
         if val_res["accuracy"]> aswa_res["accuracy"]:
             # hard update
             aswa_model.load_state_dict(model.state_dict())
-            aswa_n=0
+            aswa_n=1
             aswa_res= {k:v for k,v in val_res.items()}
-        else:
-            # Save ASWA
             torch.save(aswa_model.state_dict(), f"{args.dir}/aswa.pt")
-            # Provisional Soft Update
+        else:
+            # Load model
+            aswa_model.load_state_dict(torch.load(f"{args.dir}/aswa.pt"))
+            # Perform Provisional Soft Update
             utils.moving_average(aswa_model, model, 1.0 / (aswa_n + 1))
             utils.bn_update(loaders['train'], aswa_model)
             # Provisional val performance
@@ -220,10 +223,10 @@ for epoch in range(start_epoch, args.epochs):
                 "Soft Update"
                 aswa_n +=1
                 aswa_res = {k:v for k,v in temp_aswa_res.items()}
+                torch.save(aswa_model.state_dict(), f"{args.dir}/aswa.pt")
             else:
                 "Reject Update"
                 aswa_model.load_state_dict(torch.load(f"{args.dir}/aswa.pt"))
-
 
 
     if (epoch + 1) % args.save_freq == 0:
@@ -283,6 +286,7 @@ if args.swa:
     print("SWA Test:",utils.eval(loaders['test'], swa_model, criterion))
 
 if args.aswa:
+    aswa_model.load_state_dict(torch.load(f"{args.dir}/aswa.pt"))
     print("ASWA Train: ",utils.eval(loaders['train'], aswa_model, criterion))     
     print("ASWA Val:", utils.eval(loaders['val'], aswa_model, criterion))     
     print("ASWA Test:",utils.eval(loaders['test'], aswa_model, criterion))
