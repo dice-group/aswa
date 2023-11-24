@@ -183,36 +183,37 @@ for epoch in range(start_epoch, args.epochs):
         utils.adjust_learning_rate(optimizer, lr)
     else:
         lr = args.lr_init
+    # Running model over the training data
     train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer, device)
     val_res = utils.eval(loaders['val'], model, criterion,device)
     
     if args.swa and (epoch + 1) >= args.swa_start and (epoch + 1 - args.swa_start) % args.swa_c_epochs == 0:
-        # SWA
+        # (1) Apply SWA
         utils.moving_average(swa_model, model, 1.0 / (swa_n + 1.0))
         swa_n += 1.0
 
-        # ASWA
+        # (2) Apply ASWA
+        # (2.1) Compute BN update before checking val performance
         utils.bn_update(loaders['train'], aswa_model)
         current_val = utils.eval(loaders['val'], aswa_model, criterion,device)
-        
+        # (2.2) Save current ASWA model
         current_aswa_state_dict=aswa_model.state_dict()
-        
         aswa_state_dict= aswa_model.state_dict()
-        # Param Update
+
+        # (2.3) Perform provisional param epdate
         for k, params in model.state_dict().items():
             aswa_state_dict[k] = (aswa_state_dict[k] * aswa_n + params) / (1 + aswa_n)
-        # Test ASWA with updated version
+        # (2.4) Test provisional ASWA
         aswa_model.load_state_dict(aswa_state_dict)
         utils.bn_update(loaders['train'], aswa_model)
         prov_val = utils.eval(loaders['val'], aswa_model, criterion,device)
+        
         if prov_val["accuracy"] > current_val["accuracy"]:
-            print("UPDATE")
             aswa_n +=1
         else:
-            print("Do not update")
             aswa_model.load_state_dict(current_aswa_state_dict)
 
-
+        # Compute validation performances to report
         if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
             utils.bn_update(loaders['train'], swa_model)
             swa_res = utils.eval(loaders['val'], swa_model, criterion,device)
