@@ -9,17 +9,16 @@ import models
 import utils
 import tabulate
 from torch.utils.data import random_split
+
 parser = argparse.ArgumentParser(description='SGD/SWA training')
 parser.add_argument('--dir', type=str, default='.', required=False, help='training directory (default: None)')
 
 parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)')
-#parser.add_argument('--data_path', type=str, default='.', required=False, metavar='PATH',                    help='path to datasets location (default: None)')
-parser.add_argument('--batch_size', type=int, default=1024, metavar='N', help='input batch size (default: 128)')
+parser.add_argument('--batch_size', type=int, default=32, metavar='N', help='input batch size (default: 128)')
 parser.add_argument('--num_workers', type=int, default=4, metavar='N', help='number of workers (default: 4)')
 parser.add_argument('--model', type=str, default='VGG16', required=False, metavar='MODEL',
                     help='model name (default: None)')
-parser.add_argument('--optim', type=str, default='SGD', help='dataset name (default: CIFAR10)')
-
+parser.add_argument('--optim', type=str, default='Adam', help='dataset name (default: CIFAR10)')
 
 parser.add_argument('--resume', type=str, default=None, metavar='CKPT',
                     help='checkpoint to resume training from (default: None)')
@@ -27,12 +26,12 @@ parser.add_argument('--resume', type=str, default=None, metavar='CKPT',
 parser.add_argument('--epochs', type=int, default=200, metavar='N', help='number of epochs to train (default: 200)')
 parser.add_argument('--save_freq', type=int, default=25, metavar='N', help='save frequency (default: 25)')
 parser.add_argument('--eval_freq', type=int, default=1, metavar='N', help='evaluation frequency (default: 5)')
-parser.add_argument('--lr_init', type=float, default=0.1, metavar='LR', help='initial learning rate (default: 0.01)')
+parser.add_argument('--lr_init', type=float, default=0.001, metavar='LR', help='initial learning rate (default: 0.01)')
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M', help='SGD momentum (default: 0.9)')
 parser.add_argument('--wd', type=float, default=1e-4, help='weight decay (default: 1e-4)')
 
 parser.add_argument('--swa', action='store_true', help='swa usage flag (default: off)')
-parser.add_argument('--swa_start', type=float, default=161, metavar='N', help='SWA start epoch number (default: 161)')
+parser.add_argument('--swa_start', type=float, default=1, metavar='N', help='SWA start epoch number (default: 161)')
 parser.add_argument('--swa_lr', type=float, default=0.05, metavar='LR', help='SWA LR (default: 0.05)')
 parser.add_argument('--swa_c_epochs', type=int, default=1, metavar='N',
                     help='SWA model collection frequency/cycle length in epochs (default: 1)')
@@ -46,31 +45,29 @@ args = parser.parse_args()
 
 print('Preparing directory %s' % args.dir)
 os.makedirs(args.dir, exist_ok=True)
-with open(os.path.join(args.dir, 'command.sh'), 'w') as f:
-    f.write(' '.join(sys.argv))
-    f.write('\n')
 
 torch.backends.cudnn.benchmark = True
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
-# Causes Cublas error
-# torch.use_deterministic_algorithms(True)
+
 
 print('Using model %s' % args.model)
 model_cfg = getattr(models, args.model)
 
 print('Loading dataset:', args.dataset)
-if args.dataset=="CIFAR10":
-    train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=model_cfg.transform_train)
-    test_set = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=model_cfg.transform_train)
-    
-    train_size = int(len(train_set)*0.7)
-    val_size=len(train_set)-train_size
+if args.dataset == "CIFAR10":
+    train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True,
+                                             transform=model_cfg.transform_train)
+    test_set = torchvision.datasets.CIFAR10(root='./data', train=False, download=True,
+                                            transform=model_cfg.transform_train)
+
+    train_size = int(len(train_set) * 0.7)
+    val_size = len(train_set) - train_size
 else:
     print("Not implemented")
     exit(1)
 num_classes = max(train_set.targets) + 1
-train_set, val_set = random_split(train_set, [train_size, val_size],generator=torch.Generator().manual_seed(args.seed))
+train_set, val_set = random_split(train_set, [train_size, val_size], generator=torch.Generator().manual_seed(args.seed))
 
 loaders = {
     'train': torch.utils.data.DataLoader(
@@ -97,26 +94,23 @@ loaders = {
 
 }
 
-
 print('Preparing model')
 model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-if args.swa and args.aswa:
-    print('SWA and ASWA training')
-    swa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
-    aswa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
-    aswa_model.load_state_dict(swa_model.state_dict())
-    aswa_n=0
-    swa_n = 0
-else:
-    print("exitting")
+print('SWA and ASWA training')
+swa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
+swa_n = 0
 
+aswa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
+aswa_model.load_state_dict(swa_model.state_dict())
+aswa_ensemble_weights = [0]
 
 model.to(device)
 swa_model.to(device)
 aswa_model.to(device)
+
 
 def schedule(epoch):
     t = (epoch) / (args.swa_start if args.swa else args.epochs)
@@ -131,9 +125,9 @@ def schedule(epoch):
 
 
 criterion = F.cross_entropy
-if args.optim=="SGD":
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr_init,momentum=args.momentum,weight_decay=args.wd)
-elif args.optim=="Adam":
+if args.optim == "SGD":
+    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr_init, momentum=args.momentum, weight_decay=args.wd)
+elif args.optim == "Adam":
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr_init)
 else:
     print("NNN")
@@ -155,14 +149,8 @@ if args.resume is not None:
         if swa_n_ckpt is not None:
             swa_n = swa_n_ckpt
 
-columns = ['ep', 'lr', 'tr_loss', 'tr_acc', 'val_loss', 'val_acc', 'time']
-if args.swa:
-    columns.extend(['swa_val_loss', 'swa_val_acc'])
-    swa_res = {'loss': None, 'accuracy': None}
-
-if args.aswa:
-    columns.extend(['aswa_val_loss', 'aswa_val_acc'])    
-    aswa_res = {'loss': None, 'accuracy': None}
+swa_res = {'loss': None, 'accuracy': None}
+aswa_res = {'loss': None, 'accuracy': None}
 
 utils.save_checkpoint(
     args.dir,
@@ -171,22 +159,22 @@ utils.save_checkpoint(
     swa_state_dict=swa_model.state_dict() if args.swa else None,
     swa_n=swa_n if args.swa else None,
     aswa_state_dict=aswa_model.state_dict() if args.aswa else None,
-    aswa_n=aswa_n if args.aswa else None,
+    aswa_ensemble_weights=aswa_ensemble_weights if args.aswa else None,
     optimizer=optimizer.state_dict()
 )
 
 for epoch in range(start_epoch, args.epochs):
     time_ep = time.time()
     # (Adjust LR)
-    if args.optim=="SGD":
+    if args.optim == "SGD":
         lr = schedule(epoch)
         utils.adjust_learning_rate(optimizer, lr)
     else:
         lr = args.lr_init
     # Running model over the training data
     train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer, device)
-    val_res = utils.eval(loaders['val'], model, criterion,device)
-    
+    val_res = utils.eval(loaders['val'], model, criterion, device)
+
     if args.swa and (epoch + 1) >= args.swa_start and (epoch + 1 - args.swa_start) % args.swa_c_epochs == 0:
         # (1) Apply SWA
         utils.moving_average(swa_model, model, 1.0 / (swa_n + 1.0))
@@ -195,36 +183,39 @@ for epoch in range(start_epoch, args.epochs):
         # (2) Apply ASWA
         # (2.1) Compute BN update before checking val performance
         utils.bn_update(loaders['train'], aswa_model)
-        current_val = utils.eval(loaders['val'], aswa_model, criterion,device)
+        current_val = utils.eval(loaders['val'], aswa_model, criterion, device)
         # (2.2) Save current ASWA model
-        current_aswa_state_dict=aswa_model.state_dict()
-        aswa_state_dict= aswa_model.state_dict()
+        current_aswa_state_dict = aswa_model.state_dict()
+        aswa_state_dict = aswa_model.state_dict()
 
         # (2.3) Perform provisional param epdate
         for k, params in model.state_dict().items():
-            aswa_state_dict[k] = (aswa_state_dict[k] * aswa_n + params) / (1 + aswa_n)
+            # aswa_state_dict[k] = (aswa_state_dict[k] * aswa_n + params) / (1 + aswa_n)
+            aswa_state_dict[k] = (aswa_state_dict[k] * sum(aswa_ensemble_weights) + params) / (
+                    1 + sum(aswa_ensemble_weights))
+
         # (2.4) Test provisional ASWA
         aswa_model.load_state_dict(aswa_state_dict)
         utils.bn_update(loaders['train'], aswa_model)
-        prov_val = utils.eval(loaders['val'], aswa_model, criterion,device)
-        
+        prov_val = utils.eval(loaders['val'], aswa_model, criterion, device)
+
         if prov_val["accuracy"] > current_val["accuracy"]:
-            aswa_n +=1
+            # aswa_n += 1
+            aswa_ensemble_weights.append(1.0)
         else:
             aswa_model.load_state_dict(current_aswa_state_dict)
 
         # Compute validation performances to report
         if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
             utils.bn_update(loaders['train'], swa_model)
-            swa_res = utils.eval(loaders['val'], swa_model, criterion,device)
-            
+            swa_res = utils.eval(loaders['val'], swa_model, criterion, device)
+
             utils.bn_update(loaders['train'], aswa_model)
-            aswa_res = utils.eval(loaders['val'], aswa_model, criterion,device)
+            aswa_res = utils.eval(loaders['val'], aswa_model, criterion, device)
         else:
             swa_res = {'loss': None, 'accuracy': None}
-        
-            aswa_res = {'loss': None, 'accuracy': None}
 
+            aswa_res = {'loss': None, 'accuracy': None}
 
     if (epoch + 1) % args.save_freq == 0:
         utils.save_checkpoint(
@@ -234,27 +225,17 @@ for epoch in range(start_epoch, args.epochs):
             swa_state_dict=swa_model.state_dict() if args.swa else None,
             swa_n=swa_n if args.swa else None,
             aswa_state_dict=aswa_model.state_dict() if args.aswa else None,
-            aswa_n=aswa_n if args.aswa else None,
+            aswa_ensemble_weights=aswa_ensemble_weights if args.aswa else None,
             optimizer=optimizer.state_dict())
 
     time_ep = time.time() - time_ep
-    
-    columns = ['ep', 'lr', 'tr_loss', 'tr_acc', 'val_loss', 'val_acc', 'time']
 
+    # columns = ['ep',  'time',  'lr', 'tr_loss', 'tr_acc', 'val_loss', 'val_acc','swa_val_loss', 'swa_val_acc', 'aswa_val_loss', 'aswa_val_acc']
+    # values = [epoch + 1, time_ep, lr, train_res['loss'], train_res['accuracy'], val_res['loss'], val_res['accuracy'], swa_res['loss'], swa_res['accuracy'], aswa_res['loss'], aswa_res['accuracy']]
 
-    values = [epoch + 1, lr, train_res['loss'], train_res['accuracy'], val_res['loss'], val_res['accuracy'], time_ep]
-    
-    if args.swa:
-        columns.extend(['swa_val_loss', 'swa_val_acc'])
-        values.extend([swa_res['loss'], swa_res['accuracy']])
-
-    
-    if args.aswa:
-        columns.extend(['aswa_val_loss', 'aswa_val_acc'])
-        values.extend([aswa_res['loss'], aswa_res['accuracy']])  
-
-
-    table = tabulate.tabulate([values], columns, tablefmt='simple', floatfmt='8.4f')
+    table = tabulate.tabulate([[epoch + 1, time_ep, val_res['accuracy'], swa_res['accuracy'], aswa_res['accuracy']]],
+                              ["ep", "time", "Val-acc", "SWA-val-acc", "ASWA-val-acc"], tablefmt='simple',
+                              floatfmt='4.4f')
     if epoch % 40 == 0:
         table = table.split('\n')
         table = '\n'.join([table[1]] + table)
@@ -272,21 +253,19 @@ if args.epochs % args.save_freq != 0:
         optimizer=optimizer.state_dict()
     )
 
-
 utils.bn_update(loaders['train'], model)
-print("Running model Train: ",utils.eval(loaders['train'], model, criterion,device))
-print("Runing model Val:", utils.eval(loaders['val'], model, criterion,device))
-print("Running model Test:",utils.eval(loaders['test'], model, criterion,device))
+print("Running model Train: ", utils.eval(loaders['train'], model, criterion, device))
+print("Runing model Val:", utils.eval(loaders['val'], model, criterion, device))
+print("Running model Test:", utils.eval(loaders['test'], model, criterion, device))
 
 if args.swa:
     utils.bn_update(loaders['train'], swa_model)
-    print("SWA Train: ",utils.eval(loaders['train'], swa_model, criterion,device))     
-    print("SWA Val:", utils.eval(loaders['val'], swa_model, criterion,device))     
-    print("SWA Test:",utils.eval(loaders['test'], swa_model, criterion,device))
+    print("SWA Train: ", utils.eval(loaders['train'], swa_model, criterion, device))
+    print("SWA Val:", utils.eval(loaders['val'], swa_model, criterion, device))
+    print("SWA Test:", utils.eval(loaders['test'], swa_model, criterion, device))
 
 if args.aswa:
     utils.bn_update(loaders['train'], aswa_model)
-    print("ASWA Train: ",utils.eval(loaders['train'], aswa_model, criterion,device))     
-    print("ASWA Val:", utils.eval(loaders['val'], aswa_model, criterion,device))     
-    print("ASWA Test:",utils.eval(loaders['test'], aswa_model, criterion,device))
-
+    print("ASWA Train: ", utils.eval(loaders['train'], aswa_model, criterion, device))
+    print("ASWA Val:", utils.eval(loaders['val'], aswa_model, criterion, device))
+    print("ASWA Test:", utils.eval(loaders['test'], aswa_model, criterion, device))

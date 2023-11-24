@@ -37,7 +37,7 @@ def train_epoch(loader, model, criterion, optimizer, device):
         loss_sum += loss.item() * input.size(0)
         pred = output.data.max(1, keepdim=True)[1]
         correct += pred.eq(target.data.view_as(pred)).sum().item()
-
+        break
     return {
         'loss': loss_sum / len(loader.dataset),
         'accuracy': correct / len(loader.dataset) * 100.0,
@@ -116,7 +116,8 @@ def bn_update(loader, model):
     model.apply(lambda module: _get_momenta(module, momenta))
     n = 0
     for input, _ in loader:
-        input = input.cuda()#(async=True)
+        # @TODO: This needs to be device
+        input = input.cuda()
         input_var = torch.autograd.Variable(input)
         b = input_var.data.size(0)
 
