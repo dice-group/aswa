@@ -114,18 +114,19 @@ def bn_update(loader, model):
     momenta = {}
     model.apply(reset_bn)
     model.apply(lambda module: _get_momenta(module, momenta))
+    device=next(model.parameters()).device
+
     n = 0
     for input, _ in loader:
         # @TODO: This needs to be device
-        input = input.cuda()
-        input_var = torch.autograd.Variable(input)
-        b = input_var.data.size(0)
+        input = input.to(device)
+        b = input.data.size(0)
 
         momentum = b / (n + b)
         for module in momenta.keys():
             module.momentum = momentum
 
-        model(input_var)
+        model(input)
         n += b
 
     model.apply(lambda module: _set_momenta(module, momenta))

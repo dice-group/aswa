@@ -14,8 +14,8 @@ parser = argparse.ArgumentParser(description='SGD/SWA training')
 parser.add_argument('--dir', type=str, default='.', required=False, help='training directory (default: None)')
 
 parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)')
-parser.add_argument('--batch_size', type=int, default=32, metavar='N', help='input batch size (default: 128)')
-parser.add_argument('--num_workers', type=int, default=4, metavar='N', help='number of workers (default: 4)')
+parser.add_argument('--batch_size', type=int, default=1024, metavar='N', help='input batch size (default: 128)')
+parser.add_argument('--num_workers', type=int, default=16, metavar='N', help='number of workers (default: 4)')
 parser.add_argument('--model', type=str, default='VGG16', required=False, metavar='MODEL',
                     help='model name (default: None)')
 parser.add_argument('--optim', type=str, default='Adam', help='dataset name (default: CIFAR10)')
