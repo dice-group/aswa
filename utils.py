@@ -24,13 +24,11 @@ def train_epoch(loader, model, criterion, optimizer, device):
     model.train()
 
     for i, (input, target) in enumerate(loader):
-        input = input.to(device)#(async=True)
-        target = target.to(device)#(async=True)
-        input_var = torch.autograd.Variable(input)
-        target_var = torch.autograd.Variable(target)
+        input = input.to(device)
+        target = target.to(device)
 
-        output = model(input_var)
-        loss = criterion(output, target_var)
+        output = model(input)
+        loss = criterion(output, target)
 
         optimizer.zero_grad()
         loss.backward()
@@ -38,7 +36,7 @@ def train_epoch(loader, model, criterion, optimizer, device):
 
         loss_sum += loss.item() * input.size(0)
         pred = output.data.max(1, keepdim=True)[1]
-        correct += pred.eq(target_var.data.view_as(pred)).sum().item()
+        correct += pred.eq(target.data.view_as(pred)).sum().item()
 
     return {
         'loss': loss_sum / len(loader.dataset),
@@ -46,24 +44,22 @@ def train_epoch(loader, model, criterion, optimizer, device):
     }
 
 @torch.no_grad()
-def eval(loader, model, criterion):
+def eval(loader, model, criterion,device):
     loss_sum = 0.0
     correct = 0.0
 
     model.eval()
 
     for i, (input, target) in enumerate(loader):
-        input = input.cuda()#(async=True)
-        target = target.cuda()#(async=True)
-        input_var = torch.autograd.Variable(input)
-        target_var = torch.autograd.Variable(target)
+        input = input.to(device)
+        target = target.to(device)
 
-        output = model(input_var)
-        loss = criterion(output, target_var)
+        output = model(input)
+        loss = criterion(output, target)
 
         loss_sum += loss.item() * input.size(0)
         pred = output.data.max(1, keepdim=True)[1]
-        correct += pred.eq(target_var.data.view_as(pred)).sum().item()
+        correct += pred.eq(target.data.view_as(pred)).sum().item()
 
     return {
         'loss': loss_sum / len(loader.dataset),

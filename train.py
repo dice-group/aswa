@@ -53,17 +53,13 @@ with open(os.path.join(args.dir, 'command.sh'), 'w') as f:
 torch.backends.cudnn.benchmark = True
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
+# Causes Cublas error
+# torch.use_deterministic_algorithms(True)
 
 print('Using model %s' % args.model)
 model_cfg = getattr(models, args.model)
 
 print('Loading dataset:', args.dataset)
-"""
-ds = getattr(torchvision.datasets, args.dataset)
-path = os.path.join(args.data_path, args.dataset.lower())
-train_set = ds(path, train=True, download=True, transform=model_cfg.transform_train)
-test_set = ds(path, train=False, download=True, transform=model_cfg.transform_test)
-"""
 if args.dataset=="CIFAR10":
     train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=model_cfg.transform_train)
     test_set = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=model_cfg.transform_train)
@@ -110,12 +106,8 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 if args.swa and args.aswa:
     print('SWA and ASWA training')
     swa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
-    swa_model.eval()
     aswa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
-    aswa_model.eval()
-
     aswa_model.load_state_dict(swa_model.state_dict())
-    
     aswa_n=0
     swa_n = 0
 else:
@@ -191,34 +183,42 @@ for epoch in range(start_epoch, args.epochs):
         utils.adjust_learning_rate(optimizer, lr)
     else:
         lr = args.lr_init
-
     train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer, device)
-    val_res = utils.eval(loaders['val'], model, criterion)
-
+    val_res = utils.eval(loaders['val'], model, criterion,device)
+    
     if args.swa and (epoch + 1) >= args.swa_start and (epoch + 1 - args.swa_start) % args.swa_c_epochs == 0:
+        # SWA
+        utils.moving_average(swa_model, model, 1.0 / (swa_n + 1.0))
+        swa_n += 1.0
+
+        # ASWA
+        utils.bn_update(loaders['train'], aswa_model)
+        current_val = utils.eval(loaders['val'], aswa_model, criterion,device)
         
-        utils.moving_average(swa_model, model, 1.0 / (swa_n + 1))
-        swa_n += 1
- 
-        if aswa_res["accuracy"] is not None:
-            if val_res["accuracy"] > aswa_res["accuracy"]:
-                # Decrease the denominator or increase the nominator
-                utils.moving_average(aswa_model, model, 2.0 / (aswa_n + 1))        
-                aswa_n += 1
-            else:
-                utils.moving_average(aswa_model, model, 1.0 / (aswa_n + 1))        
-                aswa_n += 1
+        current_aswa_state_dict=aswa_model.state_dict()
+        
+        aswa_state_dict= aswa_model.state_dict()
+        # Param Update
+        for k, params in model.state_dict().items():
+            aswa_state_dict[k] = (aswa_state_dict[k] * aswa_n + params) / (1 + aswa_n)
+        # Test ASWA with updated version
+        aswa_model.load_state_dict(aswa_state_dict)
+        utils.bn_update(loaders['train'], aswa_model)
+        prov_val = utils.eval(loaders['val'], aswa_model, criterion,device)
+        if prov_val["accuracy"] > current_val["accuracy"]:
+            print("UPDATE")
+            aswa_n +=1
         else:
-            utils.moving_average(aswa_model, model, 1.0 / (aswa_n + 1))    
-            aswa_n += 1
+            print("Do not update")
+            aswa_model.load_state_dict(current_aswa_state_dict)
+
 
         if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
-
             utils.bn_update(loaders['train'], swa_model)
-            swa_res = utils.eval(loaders['val'], swa_model, criterion)
+            swa_res = utils.eval(loaders['val'], swa_model, criterion,device)
             
             utils.bn_update(loaders['train'], aswa_model)
-            aswa_res = utils.eval(loaders['val'], aswa_model, criterion)
+            aswa_res = utils.eval(loaders['val'], aswa_model, criterion,device)
         else:
             swa_res = {'loss': None, 'accuracy': None}
         
@@ -271,18 +271,21 @@ if args.epochs % args.save_freq != 0:
         optimizer=optimizer.state_dict()
     )
 
-with torch.no_grad():
-    print("Running model Train: ",utils.eval(loaders['train'], model, criterion))
-    print("Runing model Val:", utils.eval(loaders['val'], model, criterion))
-    print("Running model Test:",utils.eval(loaders['test'], model, criterion))
 
-    if args.swa:
-        print("SWA Train: ",utils.eval(loaders['train'], swa_model, criterion))     
-        print("SWA Val:", utils.eval(loaders['val'], swa_model, criterion))     
-        print("SWA Test:",utils.eval(loaders['test'], swa_model, criterion))
+utils.bn_update(loaders['train'], model)
+print("Running model Train: ",utils.eval(loaders['train'], model, criterion,device))
+print("Runing model Val:", utils.eval(loaders['val'], model, criterion,device))
+print("Running model Test:",utils.eval(loaders['test'], model, criterion,device))
 
-    if args.aswa:
-        print("ASWA Train: ",utils.eval(loaders['train'], aswa_model, criterion))     
-        print("ASWA Val:", utils.eval(loaders['val'], aswa_model, criterion))     
-        print("ASWA Test:",utils.eval(loaders['test'], aswa_model, criterion))
+if args.swa:
+    utils.bn_update(loaders['train'], swa_model)
+    print("SWA Train: ",utils.eval(loaders['train'], swa_model, criterion,device))     
+    print("SWA Val:", utils.eval(loaders['val'], swa_model, criterion,device))     
+    print("SWA Test:",utils.eval(loaders['test'], swa_model, criterion,device))
+
+if args.aswa:
+    utils.bn_update(loaders['train'], aswa_model)
+    print("ASWA Train: ",utils.eval(loaders['train'], aswa_model, criterion,device))     
+    print("ASWA Val:", utils.eval(loaders['val'], aswa_model, criterion,device))     
+    print("ASWA Test:",utils.eval(loaders['test'], aswa_model, criterion,device))
 
