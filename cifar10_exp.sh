@@ -25,7 +25,7 @@ python3 -u train.py --dir=CIFAR10_VGG16BN_500E --dataset=CIFAR10 --model=VGG16BN
 
 
 
-python3 -u train.py --dir=CIFAR10-VGG19_10E    --dataset=CIFAR10 --model=VGG19   --epochs=10  --lr_init=0.0001 --swa --aswa --swa_start=1 --optim "Adam" --eval_freq 1 > cifar10_VGG19_10E.log
+python3 -u train.py --dir=CIFAR10_VGG19_10E    --dataset=CIFAR10 --model=VGG19   --epochs=10  --lr_init=0.0001 --swa --aswa --swa_start=1 --optim "Adam" --eval_freq 1 > cifar10_VGG19_10E.log
 python3 -u train.py --dir=CIFAR10_VGG19_20E    --dataset=CIFAR10 --model=VGG19   --epochs=20  --lr_init=0.0001 --swa --aswa --swa_start=1 --optim "Adam" --eval_freq 1 > cifar10_VGG19_20E.log
 python3 -u train.py --dir=CIFAR10_VGG19_25E    --dataset=CIFAR10 --model=VGG19   --epochs=25  --lr_init=0.0001 --swa --aswa --swa_start=1 --optim "Adam" --eval_freq 1 > cifar10_VGG19_25E.log 
 python3 -u train.py --dir=CIFAR10_VGG19_50E    --dataset=CIFAR10 --model=VGG19   --epochs=50  --lr_init=0.0001 --swa --aswa --swa_start=1 --optim "Adam" --eval_freq 1 > cifar10_VGG19_50E.log
@@ -37,7 +37,7 @@ python3 -u train.py --dir=CIFAR10_VGG19_500E   --dataset=CIFAR10 --model=VGG19  
 
 
 
-python3 -u train.py --dir=CIFAR10-VGG19BN_10   --dataset=CIFAR10 --model=VGG19BN --epochs=10  --lr_init=0.0001 --swa --aswa --swa_start=1 --optim "Adam" --eval_freq 1 > cifar10_VGG19BN_10E.log
+python3 -u train.py --dir=CIFAR10_VGG19BN_10   --dataset=CIFAR10 --model=VGG19BN --epochs=10  --lr_init=0.0001 --swa --aswa --swa_start=1 --optim "Adam" --eval_freq 1 > cifar10_VGG19BN_10E.log
 python3 -u train.py --dir=CIFAR10_VGG19BN_20E  --dataset=CIFAR10 --model=VGG19BN --epochs=20  --lr_init=0.0001 --swa --aswa --swa_start=1 --optim "Adam" --eval_freq 1 > cifar10_VGG19BN_20E.log
 python3 -u train.py --dir=CIFAR10_VGG19BN_25E  --dataset=CIFAR10 --model=VGG19BN --epochs=25  --lr_init=0.0001 --swa --aswa --swa_start=1 --optim "Adam" --eval_freq 1 > cifar10_VGG19BN_25E.log
 python3 -u train.py --dir=CIFAR10_VGG19BN_50E  --dataset=CIFAR10 --model=VGG19BN --epochs=50  --lr_init=0.0001 --swa --aswa --swa_start=1 --optim "Adam" --eval_freq 1 > cifar10_VGG19BN_50E.log
