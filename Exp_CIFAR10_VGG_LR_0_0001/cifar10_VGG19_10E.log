@@ -1,0 +1,29 @@
+Preparing directory CIFAR10-VGG19_10E
+Using model VGG19
+Loading dataset: CIFAR10
+Files already downloaded and verified
+Files already downloaded and verified
+Preparing model
+SWA and ASWA training
+----  ------  ---------  -------------  --------------
+  ep    time    Val-acc    SWA-val-acc    ASWA-val-acc
+----  ------  ---------  -------------  --------------
+   1  7.2377    14.5600        14.3467         14.1267
+   2  4.8281    13.6867        15.1733         15.2333
+   3  4.9251    10.5467        10.0400         10.0733
+   4  5.5068    10.8333         9.9333          9.8867
+   5  4.9173    10.2533         9.6267         10.3400
+   6  5.3810    10.1400        10.4400         10.7867
+   7  5.0252     9.5267        10.4867         10.5800
+   8  4.9897     7.7800        10.2400         10.2467
+   9  5.2898     7.4933         9.6067          9.3600
+  10  5.1519     9.4933         8.7267          8.0400
+Running model Train:  {'loss': 2.259209221158709, 'accuracy': 9.385714285714286}
+Runing model Val: {'loss': 2.259762348937988, 'accuracy': 9.533333333333333}
+Running model Test: {'loss': 2.258702950668335, 'accuracy': 9.36}
+SWA Train:  {'loss': 2.294138258252825, 'accuracy': 8.714285714285715}
+SWA Val: {'loss': 2.2942849638621015, 'accuracy': 8.82}
+SWA Test: {'loss': 2.294027372741699, 'accuracy': 8.64}
+ASWA Train:  {'loss': 2.287311863545009, 'accuracy': 8.142857142857144}
+ASWA Val: {'loss': 2.2875067808787026, 'accuracy': 8.08}
+ASWA Test: {'loss': 2.2870912914276125, 'accuracy': 8.01}
