@@ -37,7 +37,7 @@ def train_epoch(loader, model, criterion, optimizer, device):
         loss_sum += loss.item() * input.size(0)
         pred = output.data.max(1, keepdim=True)[1]
         correct += pred.eq(target.data.view_as(pred)).sum().item()
-        break
+        
     return {
         'loss': loss_sum / len(loader.dataset),
         'accuracy': correct / len(loader.dataset) * 100.0,
