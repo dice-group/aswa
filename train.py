@@ -9,8 +9,10 @@ import models
 import utils
 import tabulate
 from torch.utils.data import random_split
+import pandas as pd
 
-parser = argparse.ArgumentParser(description='SGD/SWA training')
+
+parser = argparse.ArgumentParser(description='SGD-SWA-ASWA training')
 parser.add_argument('--dir', type=str, default='.', required=False, help='training directory (default: None)')
 
 parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)')
@@ -65,20 +67,24 @@ if args.dataset == "CIFAR10":
     test_set = torchvision.datasets.CIFAR10(root='./data', train=False, download=True,
                                             transform=model_cfg.transform_test)
 
-    train_size = int(len(train_set) * 1-args.val_ratio)
+    train_size = int( len(train_set) * (1-args.val_ratio))
     val_size = len(train_set) - train_size
 elif args.dataset=="CIFAR100":
-    train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True,
+    train_set = torchvision.datasets.CIFAR100(root='./data', train=True, download=True,
                                              transform=model_cfg.transform_train)
-    test_set = torchvision.datasets.CIFAR10(root='./data', train=False, download=True,
+    test_set = torchvision.datasets.CIFAR100(root='./data', train=False, download=True,
                                             transform=model_cfg.transform_test) 
 
-    train_size = int(len(train_set) * 1- args.val_ratio)
+    train_size = int(len(train_set) * (1- args.val_ratio))
     val_size = len(train_set) - train_size
 else:
     print("Incorred dataset",args.dataset)
+
 num_classes = max(train_set.targets) + 1
 train_set, val_set = random_split(train_set, [train_size, val_size], generator=torch.Generator().manual_seed(args.seed))
+
+
+print(f"|Train|:{len(train_set)} |Val|:{len(val_set)} t|Test|:{len(test_set)}")
 
 loaders = {
     'train': torch.utils.data.DataLoader(
@@ -144,7 +150,7 @@ else:
     print("NNN")
     exit(1)
 
-start_epoch = 0
+
 # Not tested
 if args.resume is not None:
     print('Resume training from %s' % args.resume)
@@ -160,9 +166,9 @@ if args.resume is not None:
         if swa_n_ckpt is not None:
             swa_n = swa_n_ckpt
 
-swa_res = {'loss': None, 'accuracy': None}
-aswa_res = {'loss': None, 'accuracy': None}
 
+
+"""
 utils.save_checkpoint(
     args.dir,
     start_epoch,
@@ -173,17 +179,22 @@ utils.save_checkpoint(
     aswa_ensemble_weights=aswa_ensemble_weights if args.aswa else None,
     optimizer=optimizer.state_dict()
 )
-
+"""
+start_epoch=0
+df=[]
 for epoch in range(start_epoch, args.epochs):
     time_ep = time.time()
     # (Adjust LR)
-    if args.optim == "SGD":
+    if args.optim == "SGD" and epoch > 0 :
         lr = schedule(epoch)
         utils.adjust_learning_rate(optimizer, lr)
     else:
         lr = args.lr_init
+
+    # (.) Store the epoch info
     epoch_res=dict()
-    # Running model over the training data
+
+    # (.) Running model over the training data
     train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer, device)
     val_res = utils.eval(loaders['val'], model, criterion, device)
     test_res = utils.eval(loaders['test'], model, criterion, device)
@@ -195,6 +206,7 @@ for epoch in range(start_epoch, args.epochs):
 
 
     if args.swa and (epoch + 1) >= args.swa_start and (epoch + 1 - args.swa_start) % args.swa_c_epochs == 0:
+        print("here")
         # (1) Apply SWA
         utils.moving_average(swa_model, model, 1.0 / (swa_n + 1.0))
         swa_n += 1.0
@@ -218,31 +230,25 @@ for epoch in range(start_epoch, args.epochs):
         utils.bn_update(loaders['train'], aswa_model)
         prov_val = utils.eval(loaders['val'], aswa_model, criterion, device)
 
-        if prov_val["loss"] >= current_val["loss"]:
+        if prov_val["accuracy"] >= current_val["accuracy"]:
             aswa_ensemble_weights.append(1.0)
         else:
             aswa_model.load_state_dict(current_aswa_state_dict)
 
-        # Compute validation performances to report
-        if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
-            utils.bn_update(loaders['train'], swa_model)
-            swa_res = utils.eval(loaders['val'], swa_model, criterion, device)
+    # Compute validation performances to report
+    #if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
+    utils.bn_update(loaders['train'], swa_model)            
+    utils.bn_update(loaders['train'], aswa_model)
 
-            utils.bn_update(loaders['train'], aswa_model)
-            aswa_res = utils.eval(loaders['val'], aswa_model, criterion, device)
-            
-            utils.bn_update(loaders['train'], aswa_model)
-            aswa_res = utils.eval(loaders['val'], aswa_model, criterion, device)
+    epoch_res["SWA"]={
+                "train":utils.eval(loaders['train'], swa_model, criterion, device),
+                "val":utils.eval(loaders['val'], swa_model, criterion, device), 
+                "test":utils.eval(loaders['test'], swa_model, criterion, device)}
 
-
-            epoch_res["SWA"]={"train":utils.eval(loaders['train'], swa_model, criterion, device),
-                    "val":utils.eval(loaders['val'], swa_model, criterion, device), 
-                    "test":utils.eval(loaders['test'], swa_model, criterion, device)}
-
-            epoch_res["ASWA"]={
-                    "train":utils.eval(loaders['train'], aswa_model, criterion, device),
-                    "val":utils.eval(loaders['val'], aswa_model, criterion, device), 
-                    "test":utils.eval(loaders['test'], aswa_model, criterion, device)}
+    epoch_res["ASWA"]={
+                "train":utils.eval(loaders['train'], aswa_model, criterion, device),
+                "val":utils.eval(loaders['val'], aswa_model, criterion, device), 
+                "test":utils.eval(loaders['test'], aswa_model, criterion, device)}
 
 
     if (epoch + 1) % args.save_freq == 0:
@@ -257,9 +263,12 @@ for epoch in range(start_epoch, args.epochs):
             optimizer=optimizer.state_dict())
 
     time_ep = time.time() - time_ep
-
-
-    table = tabulate.tabulate([[epoch + 1, time_ep, lr, 
+    
+    
+    columns=["ep", "time", "lr", "train_loss", "train_acc", 
+            "test_acc", "swa_train_acc", "swa_val_acc", "swa_test_acc",
+            "aswa_train_acc", "aswa_val_acc", "aswa_test_acc"]
+    values=[epoch + 1, time_ep, lr, 
         epoch_res["Running"]["train"]["loss"], epoch_res["Running"]["train"]["accuracy"],
         epoch_res["Running"]["test"]["accuracy"],
         epoch_res["SWA"]["train"]["accuracy"],
@@ -267,13 +276,11 @@ for epoch in range(start_epoch, args.epochs):
         epoch_res["SWA"]["test"]["accuracy"],
         epoch_res["ASWA"]["train"]["accuracy"],
         epoch_res["ASWA"]["val"]["accuracy"],    
-        epoch_res["ASWA"]["test"]["accuracy"]]], 
-        ["ep", "time", "lr", 
-            "train_loss", "train_acc", 
-            "test_acc", 
-            "swa_train_acc", "swa_val_acc", "swa_test_acc",
-            "aswa_train_acc", "aswa_val_acc", "aswa_test_acc"],
-        tablefmt='simple', floatfmt='4.4f')
+        epoch_res["ASWA"]["test"]["accuracy"]]
+    
+    df.append(values)
+    table = tabulate.tabulate([values],columns,tablefmt='simple', floatfmt='4.4f')
+    
     if epoch % 40 == 0:
         table = table.split('\n')
         table = '\n'.join([table[1]] + table)
@@ -290,6 +297,12 @@ if args.epochs % args.save_freq != 0:
         swa_n=swa_n if args.swa else None,
         optimizer=optimizer.state_dict()
     )
+
+
+df=pd.DataFrame(df,columns=columns)#.save_csv("demir.csv")
+
+
+df.to_csv(f"{args.dir}/results.csv")
 
 utils.bn_update(loaders['train'], model)
 print("Running model Train: ", utils.eval(loaders['train'], model, criterion, device))
