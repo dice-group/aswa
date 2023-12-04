@@ -2,7 +2,11 @@
 This repository based on https://github.com/timgaripov/swa/tree/master
 
 
-To reproduce our experiments, please rerun **Cifar10_VGG_16_and_19_experiments.sh** three times and consider the mean and standard devision.
+``` bash
+conda create -n aswa python=3.9.18 --no-default-packages && conda activate aswa
+pip3 install pandas
+```
+
 
 # Stochastic Weight Averaging (SWA)
 This repository contains a PyTorch implementation of the Stochastic Weight Averaging (SWA) training method for DNNs from the paper
