@@ -249,8 +249,8 @@ for epoch in range(start_epoch, args.epochs):
                 "train":utils.eval(loaders['train'], aswa_model, criterion, device),
                 "val":utils.eval(loaders['val'], aswa_model, criterion, device), 
                 "test":utils.eval(loaders['test'], aswa_model, criterion, device)}
-
-
+    
+    """
     if (epoch + 1) % args.save_freq == 0:
         utils.save_checkpoint(
             args.dir,
@@ -261,7 +261,7 @@ for epoch in range(start_epoch, args.epochs):
             aswa_state_dict=aswa_model.state_dict() if args.aswa else None,
             aswa_ensemble_weights=aswa_ensemble_weights if args.aswa else None,
             optimizer=optimizer.state_dict())
-
+    """
     time_ep = time.time() - time_ep
     
     
