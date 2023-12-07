@@ -11,6 +11,8 @@ import tabulate
 from torch.utils.data import random_split
 import pandas as pd
 
+from torch.nn.parallel import DistributedDataParallel as DDP
+
 parser = argparse.ArgumentParser(description='SWA-ASWA training')
 parser.add_argument('--dir', type=str, default='.', required=False, help='training directory (default: None)')
 
@@ -39,7 +41,6 @@ parser.add_argument('--seed', type=int, default=1, metavar='S', help='random see
 
 parser.add_argument('--val_ratio', type=float, default='0.1')
 
-# TODO: add device
 args = parser.parse_args()
 
 print('Preparing directory %s' % args.dir)
@@ -77,15 +78,19 @@ else:
 num_classes = max(train_set.targets) + 1
 train_set, val_set = random_split(train_set, [train_size, val_size], generator=torch.Generator().manual_seed(args.seed))
 
+# Initialize 
+torch.distributed.init_process_group(backend="nccl")  
+
 # Loaders
 print(f"|Train|:{len(train_set)} |Val|:{len(val_set)} |Test|:{len(test_set)}")
 loaders = {
     'train': torch.utils.data.DataLoader(
         train_set,
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=False,
         num_workers=args.num_workers,
-        pin_memory=True
+        pin_memory=True,
+        sampler=torch.utils.data.distributed.DistributedSampler(train_set)
     ),
     'val': torch.utils.data.DataLoader(
         val_set,
@@ -107,7 +112,6 @@ loaders = {
 print('Preparing model')
 model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 print('SWA and ASWA training')
 swa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
@@ -117,10 +121,16 @@ aswa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cf
 aswa_model.load_state_dict(swa_model.state_dict())
 aswa_ensemble_weights = [0]
 
-model.to(device)
-swa_model.to(device)
-aswa_model.to(device)
 
+
+rank = torch.distributed.get_rank()
+device = rank % torch.cuda.device_count()
+# Running model DDP
+model = model.to(device)
+ddpmodel = DDP(model, device_ids=[device])
+# Ensembles only to GPU
+swa_model = swa_model.to(device)
+aswa_model = aswa_model.to(device)
 
 def schedule(epoch):
     t = (epoch) / (args.swa_start if args.swa else args.epochs)
@@ -157,11 +167,15 @@ for epoch in range(start_epoch, args.epochs):
 
     # (.) Store the epoch info
     epoch_res = dict()
-
     # (.) Running model over the training data
-    # epoch=None, loader=None, model=None, criterion=None, optimizer=None, device=None
     train_res = utils.train_epoch(epoch=epoch, loader=loaders['train'], model=model, criterion=criterion, optimizer=optimizer, device=device)
+    
+    # Perform analysis only on the running model located at the device 0
+    if device != 0:
+        continue
+    
     # (.) Compute BN update before checking val performance
+    # Only baseed on running model on device 0
     utils.bn_update(loaders['train'], model)
     val_res = utils.eval(loaders['val'], model, criterion, device)
     test_res = utils.eval(loaders['test'], model, criterion, device)
@@ -200,10 +214,23 @@ for epoch in range(start_epoch, args.epochs):
         prov_val = utils.eval(loaders['val'], aswa_model, criterion, device)
         
         # (2.4) Decision: If updated ASWA ensemble performs better than unupdated ASWA
-        if prov_val["accuracy"] >= current_val["accuracy"]:
+        
+        if epoch_res["Running"]["val"]["accuracy"] > prov_val["accuracy"] and epoch_res["Running"]["val"]["accuracy"] > current_val["accuracy"]:
+            # Hard update
+            # print("Hard Update")
+            aswa_model.load_state_dict(model.state_dict())
+            aswa_ensemble_weights.clear()
+        elif prov_val["accuracy"] >= current_val["accuracy"]:
+            # Soft-update
+            # print("Soft Update")
             aswa_ensemble_weights.append(1.0)
         else:
+            assert current_val["accuracy"] >= prov_val["accuracy"]
+            assert current_val["accuracy"] >= epoch_res["Running"]["val"]["accuracy"]
+            # Reject
+            # print("Rejection")
             aswa_model.load_state_dict(current_aswa_state_dict)
+
 
     # Compute validation performances to report
     # if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
@@ -257,23 +284,31 @@ if args.epochs % args.save_freq != 0:
         optimizer=optimizer.state_dict()
     )
 
-df = pd.DataFrame(df, columns=columns)
 
-df.to_csv(f"{args.dir}/results.csv")
 
-utils.bn_update(loaders['train'], model)
-print("Running model Train: ", utils.eval(loaders['train'], model, criterion, device))
-print("Runing model Val:", utils.eval(loaders['val'], model, criterion, device))
-print("Running model Test:", utils.eval(loaders['test'], model, criterion, device))
 
-if args.swa:
-    utils.bn_update(loaders['train'], swa_model)
-    print("SWA Train: ", utils.eval(loaders['train'], swa_model, criterion, device))
-    print("SWA Val:", utils.eval(loaders['val'], swa_model, criterion, device))
-    print("SWA Test:", utils.eval(loaders['test'], swa_model, criterion, device))
+if device ==0:
+    df = pd.DataFrame(df, columns=columns)
+    df.to_csv(f"{args.dir}/results.csv")
 
-if args.aswa:
-    utils.bn_update(loaders['train'], aswa_model)
-    print("ASWA Train: ", utils.eval(loaders['train'], aswa_model, criterion, device))
-    print("ASWA Val:", utils.eval(loaders['val'], aswa_model, criterion, device))
-    print("ASWA Test:", utils.eval(loaders['test'], aswa_model, criterion, device))
+    utils.bn_update(loaders['train'], model)
+    print("Running model Train: ", utils.eval(loaders['train'], model, criterion, device))
+    print("Runing model Val:", utils.eval(loaders['val'], model, criterion, device))
+    print("Running model Test:", utils.eval(loaders['test'], model, criterion, device))
+
+    if args.swa:
+        utils.bn_update(loaders['train'], swa_model)
+        print("SWA Train: ", utils.eval(loaders['train'], swa_model, criterion, device))
+        print("SWA Val:", utils.eval(loaders['val'], swa_model, criterion, device))
+        print("SWA Test:", utils.eval(loaders['test'], swa_model, criterion, device))
+
+    if args.aswa:
+        utils.bn_update(loaders['train'], aswa_model)
+        print("ASWA Train: ", utils.eval(loaders['train'], aswa_model, criterion, device))
+        print("ASWA Val:", utils.eval(loaders['val'], aswa_model, criterion, device))
+        print("ASWA Test:", utils.eval(loaders['test'], aswa_model, criterion, device))
+
+
+
+torch.distributed.destroy_process_group()
+

@@ -17,9 +17,12 @@ def save_checkpoint(dir, epoch, **kwargs):
     torch.save(state, filepath)
 
 
-def train_epoch(loader, model, criterion, optimizer, device):
+def train_epoch(*,epoch=None, loader=None, model=None, criterion=None, optimizer=None, device=None):
     loss_sum = 0.0
     correct = 0.0
+
+    if isinstance(loader.sampler, torch.utils.data.RandomSampler)==False:
+        loader.sampler.set_epoch(epoch)
 
     model.train()
 
