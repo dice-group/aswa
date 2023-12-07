@@ -1,10 +1,10 @@
 # Adaptive Stochastic Weight Averaging (ASWA)
 This repository based on https://github.com/timgaripov/swa/tree/master
 
-
+## Python 3.9.18
 ``` bash
-conda create -n aswa python=3.9.18 --no-default-packages && conda activate aswa
-pip3 install pandas
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+pip3 install pandas, tabulate
 ```
 
 
