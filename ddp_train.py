@@ -110,7 +110,7 @@ loaders = {
 }
 
 print('Preparing model')
-model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
+running_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
 
 
 print('SWA and ASWA training')
@@ -126,8 +126,8 @@ aswa_ensemble_weights = [0]
 rank = torch.distributed.get_rank()
 device = rank % torch.cuda.device_count()
 # Running model DDP
-model = model.to(device)
-ddpmodel = DDP(model, device_ids=[device])
+running_model = running_model.to(device)
+ddp_model = DDP(running_model, device_ids=[device])
 # Ensembles only to GPU
 swa_model = swa_model.to(device)
 aswa_model = aswa_model.to(device)
@@ -146,9 +146,9 @@ def schedule(epoch):
 
 criterion = F.cross_entropy
 if args.optim == "SGD":
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr_init, momentum=args.momentum, weight_decay=args.wd)
+    optimizer = torch.optim.SGD(ddp_model.parameters(), lr=args.lr_init, momentum=args.momentum, weight_decay=args.wd)
 elif args.optim == "Adam":
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr_init)
+    optimizer = torch.optim.Adam(ddp_model.parameters(), lr=args.lr_init)
 else:
     print("NNN")
     exit(1)
@@ -168,7 +168,7 @@ for epoch in range(start_epoch, args.epochs):
     # (.) Store the epoch info
     epoch_res = dict()
     # (.) Running model over the training data
-    train_res = utils.train_epoch(epoch=epoch, loader=loaders['train'], model=model, criterion=criterion, optimizer=optimizer, device=device)
+    train_res = utils.train_epoch(epoch=epoch, loader=loaders['train'], model=ddp_model, criterion=criterion, optimizer=optimizer, device=device)
     
     # Perform analysis only on the running model located at the device 0
     if device != 0:
@@ -176,9 +176,9 @@ for epoch in range(start_epoch, args.epochs):
     
     # (.) Compute BN update before checking val performance
     # Only baseed on running model on device 0
-    utils.bn_update(loaders['train'], model)
-    val_res = utils.eval(loaders['val'], model, criterion, device)
-    test_res = utils.eval(loaders['test'], model, criterion, device)
+    utils.bn_update(loaders['train'], ddp_model.module)
+    val_res = utils.eval(loaders['val'], ddp_model.module, criterion, device)
+    test_res = utils.eval(loaders['test'], ddp_model.module, criterion, device)
 
     epoch_res["Running"] = {"train": train_res, "val": val_res, "test": test_res}
 
@@ -189,7 +189,7 @@ for epoch in range(start_epoch, args.epochs):
 
     if args.swa and (epoch + 1) >= args.swa_start and (epoch + 1 - args.swa_start) % args.swa_c_epochs == 0:
         # (1) SWA: Maintaing running average of model parameters
-        utils.moving_average(swa_model, model, 1.0 / (swa_n + 1.0))
+        utils.moving_average(swa_model, ddp_model.module, 1.0 / (swa_n + 1.0))
         swa_n += 1.0
 
         # (2) ASWA: 
@@ -203,7 +203,7 @@ for epoch in range(start_epoch, args.epochs):
         aswa_state_dict = aswa_model.state_dict()
 
         # (2.3) Perform provisional param update on (2.2)
-        for k, params in model.state_dict().items():
+        for k, params in ddp_model.module.state_dict().items():
             # aswa_state_dict[k] = (aswa_state_dict[k] * aswa_n + params) / (1 + aswa_n)
             aswa_state_dict[k] = (aswa_state_dict[k] * sum(aswa_ensemble_weights) + params) / (
                     1 + sum(aswa_ensemble_weights))
@@ -218,7 +218,7 @@ for epoch in range(start_epoch, args.epochs):
         if epoch_res["Running"]["val"]["accuracy"] > prov_val["accuracy"] and epoch_res["Running"]["val"]["accuracy"] > current_val["accuracy"]:
             # Hard update
             # print("Hard Update")
-            aswa_model.load_state_dict(model.state_dict())
+            aswa_model.load_state_dict(ddp_model.module.state_dict())
             aswa_ensemble_weights.clear()
         elif prov_val["accuracy"] >= current_val["accuracy"]:
             # Soft-update
@@ -274,27 +274,28 @@ for epoch in range(start_epoch, args.epochs):
         table = table.split('\n')[2]
     print(table)
 
+"""
 if args.epochs % args.save_freq != 0:
     utils.save_checkpoint(
         args.dir,
         args.epochs,
-        state_dict=model.state_dict(),
+        state_dict=ddp_model.module.state_dict(),
         swa_state_dict=swa_model.state_dict() if args.swa else None,
         swa_n=swa_n if args.swa else None,
         optimizer=optimizer.state_dict()
     )
 
-
+"""
 
 
 if device ==0:
     df = pd.DataFrame(df, columns=columns)
     df.to_csv(f"{args.dir}/results.csv")
 
-    utils.bn_update(loaders['train'], model)
-    print("Running model Train: ", utils.eval(loaders['train'], model, criterion, device))
-    print("Runing model Val:", utils.eval(loaders['val'], model, criterion, device))
-    print("Running model Test:", utils.eval(loaders['test'], model, criterion, device))
+    utils.bn_update(loaders['train'], ddp_model.module)
+    print("Running model Train: ", utils.eval(loaders['train'], ddp_model.module, criterion, device))
+    print("Runing model Val:", utils.eval(loaders['val'], ddp_model.module, criterion, device))
+    print("Running model Test:", utils.eval(loaders['test'], ddp_model.module, criterion, device))
 
     if args.swa:
         utils.bn_update(loaders['train'], swa_model)
