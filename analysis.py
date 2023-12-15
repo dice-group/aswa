@@ -3,13 +3,14 @@ import pandas as pd
 pd.set_option('display.max_columns', 20)
 pd.set_option("display.precision", 2)
 
-model_name = "VGG16"
-ratio="02"
-exp_name = f"Original_CIFAR10_{model_name}_1000E_Val_{ratio}_ratio"
+dataset="CIFAR10"
+model_name="PreResNet164"
+ratio="001"
+exp_name = f"Original_{dataset}_{model_name}_1000E_Val_{ratio}_ratio"
 
-a = "CIFAR10VGG/FirstRun/"
-b = "CIFAR10VGG/SecondRun/"
-c = "CIFAR10VGG/ThirdRun/"
+a = f"{dataset}{model_name}/FirstRun/"
+b = f"{dataset}{model_name}/SecondRun/"
+c = f"{dataset}{model_name}/ThirdRun/"
 
 df_a = pd.read_csv(f"{a}{exp_name}/results.csv", index_col=0)
 df_b = pd.read_csv(f"{b}{exp_name}/results.csv", index_col=0)
