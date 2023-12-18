@@ -1,16 +1,19 @@
 import pandas as pd
-
+import argparse
 pd.set_option('display.max_columns', 20)
 pd.set_option("display.precision", 2)
 
-dataset="CIFAR10"
-model_name="PreResNet164"
-ratio="001"
-exp_name = f"Original_{dataset}_{model_name}_1000E_Val_{ratio}_ratio"
+parser = argparse.ArgumentParser(description='Analysis')
+parser.add_argument('--dataset', type=str, default='CIFAR10')
+parser.add_argument('--model', type=str, default='WideResNet28x10')
+parser.add_argument('--ratio', type=str, default='005')
+args = parser.parse_args()
 
-a = f"{dataset}{model_name}/FirstRun/"
-b = f"{dataset}{model_name}/SecondRun/"
-c = f"{dataset}{model_name}/ThirdRun/"
+exp_name = f"Original_{args.dataset}_{args.model}_1000E_Val_{args.ratio}_ratio"
+
+a = f"{args.dataset}{args.model}/FirstRun/"
+b = f"{args.dataset}{args.model}/SecondRun/"
+c = f"{args.dataset}{args.model}/ThirdRun/"
 
 df_a = pd.read_csv(f"{a}{exp_name}/results.csv", index_col=0)
 df_b = pd.read_csv(f"{b}{exp_name}/results.csv", index_col=0)
@@ -40,13 +43,13 @@ def show_as_reported(x):
 def show_two_together(x, y):
     assert len(x) == len(y)
     # Base
-    print(f"{model_name} & " + " & ".join(
+    print(f"{args.model} & " + " & ".join(
         [f"${i:.1f} \pm {ii:.1f}$" for i, ii in zip(x["test_acc"].tolist(), y["test_acc"].tolist())]))
     # SWA
-    print(f"{model_name}-SWA & " + " & ".join(
+    print(f"{args.model}-SWA & " + " & ".join(
         [f"${i:.1f} \pm {ii:.1f}$" for i, ii in zip(x["swa_test_acc"].tolist(), y["swa_test_acc"].tolist())]))
     # ASWA
-    print(f"{model_name}-ASWA & " + " & ".join(
+    print(f"{args.model}-ASWA & " + " & ".join(
         [f"${i:.1f} \pm {ii:.1f}$" for i, ii in zip(x["aswa_test_acc"].tolist(), y["aswa_test_acc"].tolist())]))
 
 
