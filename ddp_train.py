@@ -55,7 +55,7 @@ model_cfg = getattr(models, args.model)
 
 # Dataset
 print('Loading dataset:', args.dataset)
-assert 1.0 > args.val_ratio > 0.0
+assert 1.0 > args.val_ratio > 0.0, f"Currently:{args.va_ratio}"
 if args.dataset == "CIFAR10":
     train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True,
                                              transform=model_cfg.transform_train)

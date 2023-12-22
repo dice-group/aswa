@@ -1,5 +1,6 @@
 import pandas as pd
 import argparse
+import os
 pd.set_option('display.max_columns', 20)
 pd.set_option("display.precision", 2)
 
@@ -15,10 +16,31 @@ a = f"{args.dataset}{args.model}/FirstRun/"
 b = f"{args.dataset}{args.model}/SecondRun/"
 c = f"{args.dataset}{args.model}/ThirdRun/"
 
-df_a = pd.read_csv(f"{a}{exp_name}/results.csv", index_col=0)
-df_b = pd.read_csv(f"{b}{exp_name}/results.csv", index_col=0)
-df_c = pd.read_csv(f"{c}{exp_name}/results.csv", index_col=0)
+data_frames=[]
 
+if os.path.exists(f"{a}{exp_name}/results.csv"):
+    data_frames.append(pd.read_csv(f"{a}{exp_name}/results.csv", index_col=0))
+    print(data_frames[0])
+else:
+    print(f"{a}{exp_name}/results.csv does not exist.")
+
+
+if os.path.exists(f"{b}{exp_name}/results.csv"):
+    data_frames.append(pd.read_csv(f"{b}{exp_name}/results.csv", index_col=0))
+    print(data_frames[-1])
+else:
+    print(f"{b}{exp_name}/results.csv does not exist.")
+
+
+if os.path.exists(f"{c}{exp_name}/results.csv"):
+    data_frames.append(pd.read_csv(f"{c}{exp_name}/results.csv", index_col=0))
+    print(data_frames[-1])
+else:
+    print(f"{c}{exp_name}/results.csv does not exist.")
+
+dfs = pd.concat(data_frames).groupby("ep", as_index=False)
+
+print(dfs)
 
 def selected_epochs(x):
     return x[(x["ep"] == 50) | (x["ep"] == 100) | (x["ep"] == 200) | (x["ep"] == 300) | (
@@ -53,6 +75,7 @@ def show_two_together(x, y):
         [f"${i:.1f} \pm {ii:.1f}$" for i, ii in zip(x["aswa_test_acc"].tolist(), y["aswa_test_acc"].tolist())]))
 
 
-dfs = pd.concat([df_a, df_b, df_c]).groupby("ep", as_index=False)
+#dfs = pd.concat([df_a, df_b, df_c]).groupby("ep", as_index=False)
+
 
 show_two_together(selected_epochs(dfs.mean()), selected_epochs(dfs.std()))
